@@ -28,13 +28,7 @@
                                 <label for="password" class="form-label">Password</label>
                                 <input type="password" class="form-control" id="password" name="password" required>
                             </div>
-                            <div class="mb-3">
-                                <label for="role" class="form-label">Daftar sebagai</label>
-                                <select class="form-select" name="role" id="role">
-                                    <option value="Siswa">Siswa</option>
-                                    <option value="Guru">Guru</option>
-                                </select>
-                            </div>
+                          
                             <div class="d-grid">
                                 <button type="submit" class="btn btn-primary">Register</button>
                             </div>

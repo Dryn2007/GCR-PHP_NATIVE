@@ -7,6 +7,9 @@ if ($_SESSION['role'] !== 'Siswa') {
     header("Location: ../index.php");
     exit();
 }
+$siswa_id_untuk_status = $_SESSION['user_id'];
+$status_query = $conn->query("SELECT status_guru FROM users WHERE id = $siswa_id_untuk_status");
+$user_status = $status_query->fetch_assoc();
 
 $siswa_id = $_SESSION['user_id'];
 $message = '';
@@ -72,6 +75,19 @@ $result_kelas_diikuti = $stmt->get_result();
             </div>
         </form>
     </div>
+</div>
+<div class="bg-white shadow-md rounded-lg p-6 mb-8 border border-gray-200">
+    <h3 class="text-lg font-semibold text-gray-700">Status Akun Guru</h3>
+    <?php if ($user_status['status_guru'] == 'none'): ?>
+        <p class="text-gray-600 my-2">Ingin membuat kelas dan materi sendiri? Ajukan diri Anda untuk menjadi Guru.</p>
+        <a href="../proses/ajukan_guru_proses.php" class="inline-block bg-blue-600 hover:bg-blue-70h-700 text-white font-semibold py-2 px-4 rounded transition duration-200">
+            Ajukan Menjadi Guru
+        </a>
+    <?php elseif ($user_status['status_guru'] == 'pending'): ?>
+        <p class="text-yellow-600 my-2 font-medium">Pengajuan Anda sedang ditinjau oleh Admin. Harap tunggu.</p>
+    <?php elseif ($user_status['status_guru'] == 'approved'): ?>
+        <p class="text-green-600 my-2 font-medium">Selamat! Anda adalah seorang Guru. Silakan logout dan login kembali untuk mengakses dashboard Guru.</p>
+    <?php endif; ?>
 </div>
 
 <div>
