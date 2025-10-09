@@ -6,6 +6,11 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'Admin') {
     die("Akses ditolak. Anda bukan Admin.");
 }
 
+// ==========================================================
+// KODE UNTUK CEK PERMINTAAN RESET DIAMBIL DI SINI
+// ==========================================================
+$reset_req = $conn->query("SELECT COUNT(id) AS total FROM users WHERE reset_request = 1")->fetch_assoc();
+
 // Query ini akan mengambil SEMUA pengguna dari tabel 'users'
 // dan mengurutkannya berdasarkan ID terbaru.
 $result = $conn->query("SELECT id, nama, email, role, status_guru FROM users ORDER BY id DESC");
@@ -13,12 +18,30 @@ $result = $conn->query("SELECT id, nama, email, role, status_guru FROM users ORD
 
 <h2 class="text-3xl font-bold text-gray-800 mb-6">Dashboard Admin</h2>
 
+<?php
+// ==========================================================
+// NOTIFIKASI DITAMPILKAN DI SINI, DI ATAS TAB
+// ==========================================================
+if ($reset_req['total'] > 0):
+?>
+    <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-6" role="alert">
+        <p class="font-bold">Peringatan</p>
+        <p>Ada <?php echo $reset_req['total']; ?> pengguna yang meminta reset password.
+            <a href="kelola_reset.php" class="font-bold underline">Kelola sekarang</a>.
+        </p>
+    </div>
+<?php endif; ?>
+
+
 <div class="mb-6 flex space-x-2 border-b">
     <a href="dashboard.php" class="py-2 px-4 text-sm font-medium text-center text-white bg-blue-600 rounded-t-lg">
         Manajemen Pengguna
     </a>
     <a href="manage_classes.php" class="py-2 px-4 text-sm font-medium text-center text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t-lg">
         Manajemen Kelas
+    </a>
+    <a href="manage_mapel.php" class="py-2 px-4 text-sm font-medium text-center text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t-lg">
+        Manajemen Mapel
     </a>
 </div>
 

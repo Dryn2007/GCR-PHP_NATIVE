@@ -49,11 +49,26 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['join_kelas'])) {
     }
 }
 
-// Ambil daftar kelas yang diikuti oleh siswa ini
-$stmt = $conn->prepare("SELECT k.id, k.nama_kelas, u.nama AS nama_guru FROM kelas k JOIN users u ON k.guru_id = u.id JOIN kelas_siswa ks ON k.id = ks.kelas_id WHERE ks.siswa_id = ? ORDER BY k.nama_kelas ASC");
+// GANTI DENGAN QUERY BARU YANG BENAR INI
+
+$stmt = $conn->prepare("
+    SELECT 
+        k.id, 
+        k.nama_kelas,
+        GROUP_CONCAT(DISTINCT u.nama SEPARATOR ', ') AS nama_guru
+    FROM kelas_siswa ks
+    JOIN kelas k ON ks.kelas_id = k.id
+    LEFT JOIN mapel m ON k.id = m.kelas_id
+    LEFT JOIN pengajar p ON m.id = p.mapel_id
+    LEFT JOIN users u ON p.guru_id = u.id AND u.role = 'Guru'
+    WHERE ks.siswa_id = ?
+    GROUP BY k.id
+    ORDER BY k.nama_kelas ASC
+");
 $stmt->bind_param("i", $siswa_id);
 $stmt->execute();
 $result_kelas_diikuti = $stmt->get_result();
+?>
 ?>
 
 <div class="mb-6 pb-4 border-b border-gray-300">
@@ -95,10 +110,17 @@ $result_kelas_diikuti = $stmt->get_result();
     <div class="space-y-4">
         <?php if ($result_kelas_diikuti->num_rows > 0): ?>
             <?php while ($row = $result_kelas_diikuti->fetch_assoc()): ?>
-                <a href="kelas.php?id=<?php echo $row['id']; ?>" class="block p-6 bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md hover:bg-gray-50 transition-all duration-200">
-                    <h4 class="text-xl font-semibold text-blue-700"><?php echo htmlspecialchars($row['nama_kelas']); ?></h4>
-                    <p class="text-sm text-gray-600 mt-1">Guru: <?php echo htmlspecialchars($row['nama_guru']); ?></p>
-                </a>
+                <div class="flex items-center justify-between p-6 bg-white border border-gray-200 rounded-lg shadow-sm">
+                    <a href="kelas.php?id=<?php echo $row['id']; ?>" class="flex-grow hover:opacity-75 transition-opacity">
+                        <h4 class="text-xl font-semibold text-blue-700"><?php echo htmlspecialchars($row['nama_kelas']); ?></h4>
+                        <p class="text-sm text-gray-600 mt-1">Guru: <?php echo htmlspecialchars($row['nama_guru']); ?></p>
+                    </a>
+                    <a href="../proses/siswa_proses.php?action=leave_class&id=<?php echo $row['id']; ?>"
+                        onclick="return confirm('Anda yakin ingin keluar dari kelas \'<?php echo htmlspecialchars($row['nama_kelas']); ?>\'?')"
+                        class="ml-4 flex-shrink-0 px-4 py-2 text-sm text-white font-semibold bg-red-600 rounded-md hover:bg-red-700 focus:outline-none">
+                        Keluar Kelas
+                    </a>
+                </div>
             <?php endwhile; ?>
         <?php else: ?>
             <div class="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-md">

@@ -1,206 +1,137 @@
 <?php
 require_once '../includes/header.php';
 
-// Auth Guard: Pastikan hanya Guru yang bisa akses
+// Auth & Validasi
 if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'Guru') {
-    header("Location: ../index.php");
-    exit();
+    die("Akses ditolak.");
 }
-
-// Validasi ID kelas dari URL
-if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
-    die("ID Kelas tidak valid.");
+if (!isset($_GET['id'])) {
+    die("ID Kelas tidak ditemukan.");
 }
-
 $kelas_id = $_GET['id'];
 $guru_id = $_SESSION['user_id'];
+$kelas_info = $conn->query("SELECT nama_kelas FROM kelas WHERE id = $kelas_id")->fetch_assoc();
 
-// Verifikasi apakah guru ini adalah pemilik kelas
-$stmt = $conn->prepare("SELECT nama_kelas FROM kelas WHERE id = ? AND guru_id = ?");
-$stmt->bind_param("ii", $kelas_id, $guru_id);
-$stmt->execute();
-$result = $stmt->get_result();
-if ($result->num_rows === 0) {
-    die("Anda tidak memiliki akses ke kelas ini.");
-}
-$kelas = $result->fetch_assoc();
-$stmt->close();
-
-$page_message = ''; // Variabel untuk menampung notifikasi
-
-// --- LOGIKA UPLOAD MATERI ---
-if (isset($_POST['upload_materi'])) {
-    $judul = htmlspecialchars(trim($_POST['judul']));
-    $file = $_FILES['file_materi'];
-
-    if (!empty($judul) && $file['error'] == UPLOAD_ERR_OK) {
-        $fileName = time() . '_' . basename($file['name']);
-        $filePath = '../uploads/materi/' . $fileName;
-
-        if (move_uploaded_file($file['tmp_name'], $filePath)) {
-            $stmt_materi = $conn->prepare("INSERT INTO materi (kelas_id, judul, file) VALUES (?, ?, ?)");
-            $stmt_materi->bind_param("iss", $kelas_id, $judul, $fileName);
-            $stmt_materi->execute();
-            $stmt_materi->close();
-            $page_message = "<div class='bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6' role='alert'>Materi berhasil diunggah.</div>";
-        } else {
-            $page_message = "<div class='bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6' role='alert'>Gagal mengunggah materi.</div>";
-        }
-    } else {
-        $page_message = "<div class='bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-6' role='alert'>Judul materi dan file tidak boleh kosong.</div>";
-    }
-}
-
-// --- LOGIKA BUAT TUGAS & KIRIM NOTIFIKASI ---
-if (isset($_POST['buat_tugas'])) {
-    $judul_tugas = htmlspecialchars(trim($_POST['judul_tugas']));
-    $deskripsi = htmlspecialchars(trim($_POST['deskripsi']));
-    $deadline = $_POST['deadline'];
-
-    if (!empty($judul_tugas) && !empty($deadline)) {
-        $conn->begin_transaction();
-        try {
-            $stmt_tugas = $conn->prepare("INSERT INTO tugas (kelas_id, judul, deskripsi, deadline) VALUES (?, ?, ?, ?)");
-            $stmt_tugas->bind_param("isss", $kelas_id, $judul_tugas, $deskripsi, $deadline);
-            $stmt_tugas->execute();
-            $stmt_tugas->close();
-
-            $stmt_siswa = $conn->prepare("SELECT siswa_id FROM kelas_siswa WHERE kelas_id = ?");
-            $stmt_siswa->bind_param("i", $kelas_id);
-            $stmt_siswa->execute();
-            $result_siswa = $stmt_siswa->get_result();
-
-            if ($result_siswa->num_rows > 0) {
-                $pesan_notif = "Tugas baru '" . htmlspecialchars($judul_tugas) . "' di kelas " . htmlspecialchars($kelas['nama_kelas']);
-                $link_notif = "../siswa/kelas.php?id=" . $kelas_id;
-
-                $stmt_notif = $conn->prepare("INSERT INTO notifikasi (siswa_id, pesan, link) VALUES (?, ?, ?)");
-                while ($siswa = $result_siswa->fetch_assoc()) {
-                    $stmt_notif->bind_param("iss", $siswa['siswa_id'], $pesan_notif, $link_notif);
-                    $stmt_notif->execute();
-                }
-                $stmt_notif->close();
-            }
-            $stmt_siswa->close();
-
-            $conn->commit();
-            $page_message = "<div class='bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6' role='alert'>Tugas berhasil dibuat dan notifikasi telah dikirim.</div>";
-        } catch (mysqli_sql_exception $exception) {
-            $conn->rollback();
-            $page_message = "<div class='bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6' role='alert'>Gagal membuat tugas: " . $exception->getMessage() . "</div>";
-        }
-    } else {
-        $page_message = "<div class='bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-6' role='alert'>Judul tugas dan deadline tidak boleh kosong.</div>";
-    }
-}
-
-// Ambil data terbaru dari database
-$materi_list = $conn->query("SELECT id, judul, file FROM materi WHERE kelas_id = $kelas_id ORDER BY created_at DESC");
-$tugas_list = $conn->query("SELECT id, judul, deadline FROM tugas WHERE kelas_id = $kelas_id ORDER BY deadline DESC");
+// Query baru: Ambil SEMUA mapel di kelas ini, dan cari tahu siapa pengajarnya (jika ada)
+$semua_mapel_q = $conn->prepare("
+    SELECT m.id, m.nama_mapel, p.guru_id AS id_pengajar, u.nama AS nama_pengajar
+    FROM mapel m
+    LEFT JOIN pengajar p ON m.id = p.mapel_id
+    LEFT JOIN users u ON p.guru_id = u.id
+    WHERE m.kelas_id = ?
+    ORDER BY m.nama_mapel ASC
+");
+$semua_mapel_q->bind_param("i", $kelas_id);
+$semua_mapel_q->execute();
+$semua_mapel_result = $semua_mapel_q->get_result();
 ?>
 
-<a href="dashboard.php" class="inline-block bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded mb-6 transition duration-200">&larr; Kembali ke Dashboard</a>
+<a href="dashboard.php" class="inline-block bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded mb-6">&larr; Kembali</a>
+<h2 class="text-3xl font-bold text-gray-800 mb-6">Detail Kelas: <?php echo htmlspecialchars($kelas_info['nama_kelas']); ?></h2>
 
-<div class="border-b border-gray-300 pb-4 mb-6">
-    <h2 class="text-3xl font-bold text-gray-800">Detail Kelas: <?php echo htmlspecialchars($kelas['nama_kelas']); ?></h2>
-</div>
+<div class="space-y-8">
+    <?php while ($mapel = $semua_mapel_result->fetch_assoc()): ?>
+        <?php
+        $mapel_id = $mapel['id'];
+        // Ambil materi & tugas untuk mapel ini
+        $materi_list = $conn->query("SELECT * FROM materi WHERE mapel_id = $mapel_id ORDER BY created_at DESC");
+        $tugas_list = $conn->query("SELECT * FROM tugas WHERE mapel_id = $mapel_id ORDER BY deadline DESC");
+        ?>
+        <div class="bg-white p-6 rounded-lg shadow-md border border-gray-200">
+            <div class="border-b pb-3 mb-4">
+                <h3 class="text-2xl font-bold text-blue-700"><?php echo htmlspecialchars($mapel['nama_mapel']); ?></h3>
+                <p class="text-sm text-gray-600">
+                    Pengajar:
+                    <strong class="font-semibold"><?php echo $mapel['nama_pengajar'] ?? 'Belum ada'; ?></strong>
+                </p>
+            </div>
 
-<?php
-// Menampilkan pesan dari proses POST (buat tugas/materi)
-echo $page_message;
-
-// Menampilkan pesan dari proses GET (setelah delete)
-if (isset($_GET['status'])) {
-    if ($_GET['status'] == 'delete_sukses') {
-        echo "<div class='bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6' role='alert'>Item berhasil dihapus.</div>";
-    } elseif ($_GET['status'] == 'delete_gagal') {
-        echo "<div class='bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6' role='alert'>Gagal menghapus item atau Anda tidak memiliki akses.</div>";
-    }
-}
-?>
-
-<div class="flex flex-col lg:flex-row lg:space-x-8">
-
-    <div class="w-full lg:w-1/2">
-        <h3 class="text-2xl font-bold text-gray-800 mb-4">Materi Pembelajaran</h3>
-
-        <div class="bg-white p-6 rounded-lg shadow-md border border-gray-200 mb-8">
-            <h4 class="text-xl font-semibold text-gray-700 border-b pb-3 mb-4">Unggah Materi Baru</h4>
-            <form method="POST" enctype="multipart/form-data">
-                <div class="mb-4">
-                    <label for="judul" class="block mb-2 text-sm font-medium text-gray-700">Judul Materi</label>
-                    <input type="text" name="judul" class="block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" required>
-                </div>
-                <div class="mb-4">
-                    <label for="file_materi" class="block mb-2 text-sm font-medium text-gray-700">Pilih File</label>
-                    <input type="file" name="file_materi" class="block w-full text-sm text-gray-500 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none file:mr-4 file:py-2 file:px-4 file:rounded-l-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" required>
-                </div>
-                <button type="submit" name="upload_materi" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition duration-200">Unggah Materi</button>
-            </form>
-        </div>
-
-        <h4 class="text-xl font-semibold text-gray-700 mb-3">Daftar Materi Terunggah</h4>
-        <ul class="space-y-3">
-            <?php if ($materi_list && $materi_list->num_rows > 0): ?>
-                <?php while ($materi = $materi_list->fetch_assoc()): ?>
-                    <li class="flex justify-between items-center p-4 bg-white border border-gray-200 rounded-lg shadow-sm">
-                        <span class="text-gray-800 break-all pr-2"><?php echo htmlspecialchars($materi['judul']); ?></span>
-                        <div class="flex-shrink-0 flex space-x-2">
-                            <a href="../uploads/materi/<?php echo htmlspecialchars($materi['file']); ?>" target="_blank" class="text-sm bg-sky-500 hover:bg-sky-600 text-white font-semibold py-1 px-3 rounded-md transition duration-200">Lihat</a>
-                            <a href="../proses/delete_item.php?type=materi&id=<?php echo $materi['id']; ?>&kelas_id=<?php echo $kelas_id; ?>" onclick="return confirm('Anda yakin ingin menghapus materi ini? File yang terunggah juga akan dihapus permanen.')" class="text-sm bg-red-500 hover:bg-red-600 text-white font-semibold py-1 px-3 rounded-md transition duration-200">Hapus</a>
+            <?php
+            // ==========================================================
+            // INI BAGIAN PALING PENTING
+            // Tombol dan form hanya akan muncul jika mapel ini diajar oleh guru yang sedang login
+            // ==========================================================
+            if ($mapel['id_pengajar'] == $guru_id):
+            ?>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <h4 class="text-lg font-semibold text-gray-700 mb-2">Kelola Materi</h4>
+                        <div id="form-materi-<?php echo $mapel_id; ?>" style="display:none;" class="bg-gray-50 p-4 rounded-lg mb-3">
+                            <form action="../proses/guru_proses.php" method="POST" enctype="multipart/form-data">
+                                <input type="hidden" name="action" value="tambah_materi">
+                                <input type="hidden" name="kelas_id" value="<?php echo $kelas_id; ?>">
+                                <input type="hidden" name="mapel_id" value="<?php echo $mapel_id; ?>">
+                                <input type="text" name="judul" placeholder="Judul Materi" class="w-full p-2 border rounded mb-2" required>
+                                <input type="file" name="file_materi" class="w-full p-2 border rounded mb-2" required>
+                                <button type="submit" class="bg-blue-600 text-white py-2 px-4 rounded">Upload</button>
+                            </form>
                         </div>
-                    </li>
-                <?php endwhile; ?>
-            <?php else: ?>
-                <li class="p-4 bg-white border border-gray-200 rounded-lg shadow-sm text-gray-500">Belum ada materi yang diunggah.</li>
-            <?php endif; ?>
-        </ul>
-    </div>
-
-    <div class="w-full lg:w-1/2 mt-10 lg:mt-0">
-        <h3 class="text-2xl font-bold text-gray-800 mb-4">Tugas</h3>
-
-        <div class="bg-white p-6 rounded-lg shadow-md border border-gray-200 mb-8">
-            <h4 class="text-xl font-semibold text-gray-700 border-b pb-3 mb-4">Buat Tugas Baru</h4>
-            <form method="POST">
-                <div class="mb-4">
-                    <label for="judul_tugas" class="block mb-2 text-sm font-medium text-gray-700">Judul Tugas</label>
-                    <input type="text" name="judul_tugas" class="block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" required>
-                </div>
-                <div class="mb-4">
-                    <label for="deskripsi" class="block mb-2 text-sm font-medium text-gray-700">Deskripsi</label>
-                    <textarea name="deskripsi" rows="3" class="block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"></textarea>
-                </div>
-                <div class="mb-4">
-                    <label for="deadline" class="block mb-2 text-sm font-medium text-gray-700">Deadline</label>
-                    <input type="datetime-local" name="deadline" class="block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" required>
-                </div>
-                <button type="submit" name="buat_tugas" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition duration-200">Buat Tugas</button>
-            </form>
-        </div>
-
-        <h4 class="text-xl font-semibold text-gray-700 mb-3">Daftar Tugas Aktif</h4>
-        <div class="space-y-3">
-            <?php if ($tugas_list && $tugas_list->num_rows > 0): ?>
-                <?php while ($tugas = $tugas_list->fetch_assoc()): ?>
-                    <div class="block p-4 bg-white border border-gray-200 rounded-lg shadow-sm">
-                        <div class="flex justify-between items-start">
-                            <div>
-                                <h5 class="font-semibold text-blue-700"><?php echo htmlspecialchars($tugas['judul']); ?></h5>
-                                <small class="text-sm text-red-600">Deadline: <?php echo date('d M Y, H:i', strtotime($tugas['deadline'])); ?></small>
-                            </div>
-                            <div class="flex-shrink-0 flex space-x-2">
-                                <a href="penilaian.php?tugas_id=<?php echo $tugas['id']; ?>" class="text-sm bg-green-500 hover:bg-green-600 text-white font-semibold py-1 px-3 rounded-md transition duration-200">Nilai</a>
-                                <a href="../proses/delete_item.php?type=tugas&id=<?php echo $tugas['id']; ?>&kelas_id=<?php echo $kelas_id; ?>" onclick="return confirm('PERINGATAN: Menghapus tugas ini akan menghapus SEMUA file jawaban siswa yang sudah dikumpulkan. Lanjutkan?')" class="text-sm bg-red-500 hover:bg-red-600 text-white font-semibold py-1 px-3 rounded-md transition duration-200">Hapus</a>
-                            </div>
-                        </div>
+                        <button onclick="toggleForm('form-materi-<?php echo $mapel_id; ?>')" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-3 rounded-md text-sm mb-3">+ Tambah Materi</button>
                     </div>
-                <?php endwhile; ?>
-            <?php else: ?>
-                <div class="p-4 bg-white border border-gray-200 rounded-lg shadow-sm text-gray-500">Belum ada tugas yang dibuat.</div>
-            <?php endif; ?>
+                    <div>
+                        <h4 class="text-lg font-semibold text-gray-700 mb-2">Kelola Tugas</h4>
+                        <div id="form-tugas-<?php echo $mapel_id; ?>" style="display:none;" class="bg-gray-50 p-4 rounded-lg mb-3">
+                            <form action="../proses/guru_proses.php" method="POST">
+                                <input type="hidden" name="action" value="tambah_tugas">
+                                <input type="hidden" name="kelas_id" value="<?php echo $kelas_id; ?>">
+                                <input type="hidden" name="mapel_id" value="<?php echo $mapel_id; ?>">
+                                <input type="text" name="judul_tugas" placeholder="Judul Tugas" class="w-full p-2 border rounded mb-2" required>
+                                <textarea name="deskripsi" placeholder="Deskripsi Tugas" class="w-full p-2 border rounded mb-2"></textarea>
+                                <input type="datetime-local" name="deadline" class="w-full p-2 border rounded mb-2" required>
+                                <button type="submit" class="bg-green-600 text-white py-2 px-4 rounded">Buat Tugas</button>
+                            </form>
+                        </div>
+                        <button onclick="toggleForm('form-tugas-<?php echo $mapel_id; ?>')" class="bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-3 rounded-md text-sm mb-3">+ Tambah Tugas</button>
+                    </div>
+                </div>
+            <?php endif; // Akhir dari blok khusus pengajar 
+            ?>
+
+            <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <h4 class="text-lg font-semibold text-gray-700 mb-2">Daftar Materi</h4>
+                    <ul class="space-y-2 text-sm">
+                        <?php while ($m = $materi_list->fetch_assoc()): ?>
+                            <li class="bg-gray-100 p-2 rounded"><?php echo htmlspecialchars($m['judul']); ?></li>
+                        <?php endwhile; ?>
+                    </ul>
+                </div>
+                <div>
+                    <h4 class="text-lg font-semibold text-gray-700 mb-2">Daftar Tugas</h4>
+                    <ul class="space-y-2 text-sm">
+                        <?php while ($t = $tugas_list->fetch_assoc()): ?>
+                            <li class="flex justify-between items-center bg-gray-100 p-2 rounded">
+                                <span><?php echo htmlspecialchars($t['judul']); ?></span>
+                                <?php if ($mapel['id_pengajar'] == $guru_id): // Tombol nilai hanya untuk pengajar mapel 
+                                ?>
+                                    <a href="penilaian.php?tugas_id=<?php echo $t['id']; ?>" class="bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-1 px-3 rounded text-xs">Nilai</a>
+                                <?php endif; ?>
+                            </li>
+                        <?php endwhile; ?>
+                    </ul>
+                </div>
+            </div>
         </div>
-    </div>
+    <?php endwhile; ?>
 </div>
 
+<div class="mt-8 pt-6 border-t">
+    <a href="../proses/guru_proses.php?action=keluar_kelas&id=<?php echo $kelas_id; ?>"
+        onclick="return confirm('Anda yakin ingin keluar dari kelas ini? Semua materi dan tugas yang Anda buat akan tetap ada tetapi Anda tidak akan bisa mengelolanya lagi.')"
+        class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-200">
+        Keluar dari Kelas Ini
+    </a>
+</div>
+
+<script>
+    // Fungsi simpel untuk menampilkan/menyembunyikan form
+    function toggleForm(formId) {
+        const form = document.getElementById(formId);
+        if (form.style.display === 'none') {
+            form.style.display = 'block';
+        } else {
+            form.style.display = 'none';
+        }
+    }
+</script>
 <?php require_once '../includes/footer.php'; ?>

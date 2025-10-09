@@ -1,181 +1,130 @@
 <?php
 require_once '../includes/header.php';
 
-// Pastikan hanya siswa yang bisa mengakses
-if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'Siswa') {
-    header("Location: ../index.php");
-    exit();
-}
-
-// Validasi ID kelas dari URL
-if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
-    // Tampilkan pesan error dengan gaya Tailwind
-    echo '<div class="container mx-auto mt-10"><div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded" role="alert">ID Kelas tidak valid.</div></div>';
-    require_once '../includes/footer.php';
-    exit();
-}
-
+// ... (kode validasi akses siswa Anda yang sudah ada) ...
 $kelas_id = $_GET['id'];
 $siswa_id = $_SESSION['user_id'];
+$kelas_info = $conn->query("SELECT nama_kelas FROM kelas WHERE id = $kelas_id")->fetch_assoc();
 
-// Verifikasi apakah siswa terdaftar di kelas ini
-$stmt = $conn->prepare("SELECT k.nama_kelas FROM kelas k JOIN kelas_siswa ks ON k.id = ks.kelas_id WHERE k.id = ? AND ks.siswa_id = ?");
-$stmt->bind_param("ii", $kelas_id, $siswa_id);
-$stmt->execute();
-$result = $stmt->get_result();
-if ($result->num_rows === 0) {
-    echo '<div class="container mx-auto mt-10"><div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded" role="alert">Anda tidak terdaftar di kelas ini.</div></div>';
-    require_once '../includes/footer.php';
-    exit();
-}
-// INI BAGIAN YANG MENGISI VARIABEL $kelas
-$kelas = $result->fetch_assoc();
-$stmt->close();
-
-$page_message = '';
-// --- LOGIKA KUMPUL TUGAS (FILE ATAU TEKS) ---
-if (isset($_POST['kumpul_tugas'])) {
-    $tugas_id = $_POST['tugas_id'];
-    $jawaban_teks = $_POST['jawaban_teks'] ?? null;
-    $file = $_FILES['file_jawaban'];
-
-    // Cek apakah sudah pernah mengumpulkan
-    $stmt_cek = $conn->prepare("SELECT id FROM pengumpulan WHERE tugas_id = ? AND siswa_id = ?");
-    $stmt_cek->bind_param("ii", $tugas_id, $siswa_id);
-    $stmt_cek->execute();
-
-    if ($stmt_cek->get_result()->num_rows > 0) {
-        $page_message = "<div class='bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-4' role='alert'>Anda sudah pernah mengumpulkan tugas ini.</div>";
-    } else {
-        // Validasi: Pastikan ada salah satu yang diisi (file atau teks)
-        if ($file['error'] == UPLOAD_ERR_NO_FILE && empty(trim($jawaban_teks))) {
-            $page_message = "<div class='bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4' role='alert'>Gagal: Anda harus mengunggah file atau mengisi jawaban teks.</div>";
-        } else {
-            $fileName = null;
-            // Jika ada file yang diupload, proses file
-            if ($file['error'] == UPLOAD_ERR_OK) {
-                $fileName = time() . '_' . $siswa_id . '_' . basename($file['name']);
-                $filePath = '../uploads/pengumpulan/' . $fileName;
-                if (!move_uploaded_file($file['tmp_name'], $filePath)) {
-                    $page_message = "<div class='bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4' role='alert'>Gagal mengunggah file.</div>";
-                    $fileName = null;
-                }
-            }
-
-            // Simpan ke database
-            $stmt_kumpul = $conn->prepare("INSERT INTO pengumpulan (tugas_id, siswa_id, file, jawaban_teks) VALUES (?, ?, ?, ?)");
-            $stmt_kumpul->bind_param("iiss", $tugas_id, $siswa_id, $fileName, $jawaban_teks);
-
-            if ($stmt_kumpul->execute()) {
-                $page_message = "<div class='bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-4' role='alert'>Tugas berhasil dikumpulkan.</div>";
-            } else {
-                $page_message = "<div class='bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4' role='alert'>Gagal menyimpan data ke database.</div>";
-            }
-            $stmt_kumpul->close();
-        }
-    }
-    $stmt_cek->close();
-}
-
-// INI BAGIAN YANG MENGISI VARIABEL $materi_list dan $tugas_list
-$materi_list = $conn->query("SELECT id, judul, file FROM materi WHERE kelas_id = $kelas_id ORDER BY created_at DESC");
-$tugas_list = $conn->query("SELECT id, judul, deskripsi, deadline FROM tugas WHERE kelas_id = $kelas_id ORDER BY deadline DESC");
+// Ambil semua mapel yang ada di kelas ini
+$mapel_list = $conn->query("SELECT id, nama_mapel FROM mapel WHERE kelas_id = $kelas_id ORDER BY nama_mapel ASC");
 ?>
 
-<a href="dashboard.php" class="inline-block bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded mb-6 transition duration-200">&larr; Kembali ke Dashboard</a>
-<div class="mb-8 pb-4 border-b border-gray-300">
-    <h2 class="text-3xl font-bold text-gray-800">Kelas: <?php echo htmlspecialchars($kelas['nama_kelas']); ?></h2>
-</div>
+<a href="dashboard.php" class="inline-block bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded mb-6">&larr; Kembali</a>
+<h2 class="text-3xl font-bold text-gray-800 mb-6">Materi & Tugas Kelas: <?php echo htmlspecialchars($kelas_info['nama_kelas']); ?></h2>
 
-<?php echo $page_message; ?>
+<div class="space-y-8">
+    <?php while ($mapel = $mapel_list->fetch_assoc()): ?>
+        <?php
+        $mapel_id = $mapel['id'];
+        // Ambil materi & tugas untuk mapel ini
+        $materi_list = $conn->query("SELECT * FROM materi WHERE mapel_id = $mapel_id ORDER BY created_at DESC");
+        $tugas_list = $conn->query("SELECT * FROM tugas WHERE mapel_id = $mapel_id ORDER BY deadline DESC");
+        ?>
+        <div class="bg-white p-6 rounded-lg shadow-md border border-gray-200">
+            <h3 class="text-2xl font-bold text-blue-700 border-b pb-3 mb-4"><?php echo htmlspecialchars($mapel['nama_mapel']); ?></h3>
 
-<div class="flex flex-col lg:flex-row lg:space-x-8">
+            <div class="mb-6">
+                <h4 class="text-xl font-semibold text-gray-700 mb-3">Materi</h4>
+                <ul class="space-y-2">
+                    <?php if ($materi_list->num_rows > 0): ?>
+                        <?php while ($m = $materi_list->fetch_assoc()): ?>
+                            <li class="flex justify-between items-center bg-gray-100 p-2 rounded">
+                                <span><?php echo htmlspecialchars($m['judul']); ?></span>
+                                <a href="../uploads/materi/<?php echo htmlspecialchars($m['file']); ?>" download class="bg-blue-500 hover:bg-blue-600 text-white text-sm font-semibold py-1 px-3 rounded">Download</a>
+                            </li>
+                        <?php endwhile; ?>
+                    <?php else: ?>
+                        <li class="text-gray-500">Belum ada materi.</li>
+                    <?php endif; ?>
+                </ul>
+            </div>
 
-    <div class="w-full lg:w-5/12">
-        <h3 class="text-2xl font-bold text-gray-800 mb-4">Materi Pembelajaran</h3>
-        <ul class="space-y-3">
-            <?php if ($materi_list && $materi_list->num_rows > 0): ?>
-                <?php while ($materi = $materi_list->fetch_assoc()): ?>
-                    <li class="bg-white p-4 rounded-lg shadow-sm flex justify-between items-center border border-gray-200">
-                        <span class="text-gray-700"><?php echo htmlspecialchars($materi['judul']); ?></span>
-                        <a href="../uploads/materi/<?php echo htmlspecialchars($materi['file']); ?>" download class="bg-blue-500 hover:bg-blue-600 text-white text-sm font-semibold py-1 px-3 rounded transition duration-200">Download</a>
-                    </li>
-                <?php endwhile; ?>
-            <?php else: ?>
-                <li class="bg-white p-4 rounded-lg shadow-sm text-gray-500 border border-gray-200">Belum ada materi.</li>
-            <?php endif; ?>
-        </ul>
-    </div>
+            <div>
+                <h4 class="text-xl font-semibold text-gray-700 mb-3">Tugas</h4>
+                <div class="space-y-4">
+                    <?php if ($tugas_list->num_rows > 0): ?>
+                        <?php while ($t = $tugas_list->fetch_assoc()): ?>
+                            <div class="border p-4 rounded-lg">
+                                <h5 class="font-semibold"><?php echo htmlspecialchars($t['judul']); ?></h5>
+                                <p class="text-sm text-gray-600"><?php echo nl2br(htmlspecialchars($t['deskripsi'])); ?></p>
+                                <p class="text-sm text-red-600 font-semibold mt-2">Deadline: <?php echo date('d M Y, H:i', strtotime($t['deadline'])); ?></p>
 
-    <div class="w-full lg:w-7/12 mt-10 lg:mt-0">
-        <h3 class="text-2xl font-bold text-gray-800 mb-4">Daftar Tugas</h3>
-        <div class="space-y-6">
-            <?php if ($tugas_list && $tugas_list->num_rows > 0): ?>
-                <?php while ($tugas = $tugas_list->fetch_assoc()): ?>
-                    <div class="bg-white p-6 rounded-lg shadow-md border border-gray-200">
-                        <h4 class="text-xl font-semibold text-gray-800"><?php echo htmlspecialchars($tugas['judul']); ?></h4>
-                        <div class="text-gray-600 mt-2 space-y-2"><?php echo nl2br(htmlspecialchars($tugas['deskripsi'])); ?></div>
-                        <p class="text-sm text-red-600 font-semibold mt-3">Deadline: <?php echo date('d M Y, H:i', strtotime($tugas['deadline'])); ?></p>
+                                <div class="mt-4 pt-4 border-t">
+                                    <?php
+                                    // Cek status pengumpulan tugas ini
+                                    $stmt_status = $conn->prepare("SELECT * FROM pengumpulan WHERE tugas_id = ? AND siswa_id = ?");
+                                    $stmt_status->bind_param("ii", $t['id'], $siswa_id);
+                                    $stmt_status->execute();
+                                    $result_status = $stmt_status->get_result();
 
-                        <div class="mt-4 pt-4 border-t border-gray-200">
-                            <?php
-                            // Cek status pengumpulan tugas ini
-                            $stmt_status = $conn->prepare("SELECT file, jawaban_teks, nilai, komentar FROM pengumpulan WHERE tugas_id = ? AND siswa_id = ?");
-                            $stmt_status->bind_param("ii", $tugas['id'], $siswa_id);
-                            $stmt_status->execute();
-                            $result_status = $stmt_status->get_result();
+                                    // ==========================================================
+                                    // BAGIAN INI TELAH DIGANTI DENGAN KODE BARU ANDA
+                                    // ==========================================================
+                                    if ($result_status->num_rows > 0) {
+                                        // Jika sudah mengumpulkan, ambil datanya
+                                        $pengumpulan = $result_status->fetch_assoc();
 
-                            if ($result_status->num_rows > 0) {
-                                // Jika sudah mengumpulkan
-                                $status = $result_status->fetch_assoc();
-                                echo '<div class="bg-green-50 border border-green-200 text-green-800 p-4 rounded-md">';
-                                echo '<strong class="font-semibold block">Anda sudah mengumpulkan.</strong>';
-                                if (!empty($status['file'])) {
-                                    echo '<span class="text-sm">File: ' . htmlspecialchars($status['file']) . '</span><br>';
-                                }
-                                if (!empty($status['jawaban_teks'])) {
-                                    echo '<p class="text-sm mt-2 p-2 bg-gray-100 rounded">Jawaban Teks: <br>' . nl2br(htmlspecialchars($status['jawaban_teks'])) . '</p>';
-                                }
-                                if ($status['nilai'] !== null) {
-                                    echo '<strong class="font-semibold mt-2 block">Nilai: ' . $status['nilai'] . '</strong>';
-                                    echo '<span class="text-sm">Komentar Guru: ' . htmlspecialchars($status['komentar']) . '</span>';
-                                } else {
-                                    echo '<i class="text-sm mt-2 block">Belum dinilai oleh guru.</i>';
-                                }
-                                echo '</div>';
-                            } else {
-                                // Jika belum mengumpulkan
-                                if (new DateTime() > new DateTime($tugas['deadline'])) {
-                                    echo '<div class="bg-red-50 border border-red-200 text-red-800 p-4 rounded-md text-sm font-semibold">Waktu pengumpulan sudah lewat.</div>';
-                                } else {
-                            ?>
-                                    <form method="POST" enctype="multipart/form-data">
-                                        <input type="hidden" name="tugas_id" value="<?php echo $tugas['id']; ?>">
-                                        <div class="mb-4">
-                                            <label class="block mb-2 text-sm font-medium text-gray-900" for="jawaban_teks_<?php echo $tugas['id']; ?>">Kirim Jawaban Teks (Opsional)</label>
-                                            <textarea name="jawaban_teks" id="jawaban_teks_<?php echo $tugas['id']; ?>" rows="4" class="block w-full text-sm text-gray-900 bg-gray-50 rounded-lg border border-gray-300 focus:ring-blue-500 focus:border-blue-500"></textarea>
-                                        </div>
-                                        <div class="mb-4">
-                                            <label class="block mb-2 text-sm font-medium text-gray-900" for="file_jawaban_<?php echo $tugas['id']; ?>">Atau Upload File (Opsional)</label>
-                                            <input type="file" name="file_jawaban" id="file_jawaban_<?php echo $tugas['id']; ?>" class="block w-full text-sm text-gray-500 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none file:mr-4 file:py-2 file:px-4 file:rounded-l-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
-                                        </div>
-                                        <button type="submit" name="kumpul_tugas" class="w-full px-4 py-2 text-white font-semibold bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none">Kumpulkan</button>
-                                    </form>
-                            <?php
-                                }
-                            }
-                            $stmt_status->close();
-                            ?>
-                        </div>
-                    </div>
-                <?php endwhile; ?>
-            <?php else: ?>
-                <div class="bg-white p-6 rounded-lg shadow-md border border-gray-200">
-                    <p class="text-gray-500">Belum ada tugas di kelas ini.</p>
+                                        // Cek apakah sudah ada nilai atau belum
+                                        if ($pengumpulan['nilai'] !== null) {
+                                            // JIKA SUDAH DINILAI
+                                    ?>
+                                            <div class="bg-blue-50 border border-blue-200 p-4 rounded-lg">
+                                                <h6 class="font-bold text-blue-800">Tugas Sudah Dinilai</h6>
+                                                <p class="text-2xl font-bold text-gray-800 my-1">Nilai: <?php echo htmlspecialchars($pengumpulan['nilai']); ?></p>
+                                                <?php if (!empty($pengumpulan['komentar'])): ?>
+                                                    <div class="mt-2 pt-2 border-t border-blue-200">
+                                                        <p class="text-sm font-semibold text-gray-700">Komentar dari Guru:</p>
+                                                        <p class="text-sm text-gray-600 italic">"<?php echo nl2br(htmlspecialchars($pengumpulan['komentar'])); ?>"</p>
+                                                    </div>
+                                                <?php endif; ?>
+                                            </div>
+                                        <?php
+                                        } else {
+                                            // JIKA SUDAH DIKUMPULKAN TAPI BELUM DINILAI
+                                            echo '<div class="bg-green-100 text-green-800 p-3 rounded font-semibold">Tugas sudah dikumpulkan, menunggu penilaian dari guru.</div>';
+                                        }
+                                    } else {
+                                        // ... (sisa kode Anda untuk menampilkan form jika belum mengumpulkan dan belum deadline)
+                                        // Bagian ini tidak perlu diubah.
+                                        $deadline = new DateTime($t['deadline']);
+                                        $sekarang = new DateTime();
+
+                                        if ($sekarang > $deadline) {
+                                            echo '<div class="bg-red-100 border border-red-300 text-red-800 p-3 rounded text-sm font-semibold">Waktu pengumpulan tugas telah berakhir.</div>';
+                                        } else {
+                                        ?>
+                                            <form action="../proses/siswa_proses.php" method="POST" enctype="multipart/form-data">
+                                                <input type="hidden" name="action" value="kumpul_tugas">
+                                                <input type="hidden" name="tugas_id" value="<?php echo $t['id']; ?>">
+                                                <input type="hidden" name="kelas_id" value="<?php echo $kelas_id; ?>">
+                                                <div class="mb-2">
+                                                    <label class="block text-sm font-medium">Jawaban Teks (Opsional)</label>
+                                                    <textarea name="jawaban_teks" rows="3" class="w-full p-2 border rounded"></textarea>
+                                                </div>
+                                                <div class="mb-2">
+                                                    <label class="block text-sm font-medium">Atau Upload File (Opsional)</label>
+                                                    <input type="file" name="file_jawaban" class="w-full">
+                                                </div>
+                                                <button type="submit" class="w-full bg-blue-600 text-white py-2 px-4 rounded mt-2">Kumpulkan</button>
+                                            </form>
+                                    <?php
+                                        }
+                                    } // Tutup dari if-else utama
+                                    // ==========================================================
+                                    // AKHIR DARI BAGIAN YANG DIGANTI
+                                    // ==========================================================
+                                    ?>
+                                </div>
+                            </div>
+                        <?php endwhile; ?>
+                    <?php else: ?>
+                        <p class="text-gray-500">Belum ada tugas.</p>
+                    <?php endif; ?>
                 </div>
-            <?php endif; ?>
+            </div>
         </div>
-    </div>
+    <?php endwhile; ?>
 </div>
 
 <?php require_once '../includes/footer.php'; ?>

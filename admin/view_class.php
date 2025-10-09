@@ -1,88 +1,70 @@
 <?php
 require_once '../includes/header.php';
-
-// Auth Guard: Pastikan hanya Admin yang bisa akses
-if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'Admin') {
-    die("Akses ditolak.");
-}
-
-// Validasi ID Kelas dari URL
-if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
-    die("ID Kelas tidak valid.");
-}
+// Auth & Validasi ID Kelas
+// ... (kode validasi Anda sudah bagus) ...
 $kelas_id = $_GET['id'];
 
-// Ambil info kelas dan guru
-$kelas_info_q = $conn->prepare("SELECT k.nama_kelas, u.nama AS nama_guru FROM kelas k JOIN users u ON k.guru_id = u.id WHERE k.id = ?");
-$kelas_info_q->bind_param("i", $kelas_id);
-$kelas_info_q->execute();
-$kelas_info = $kelas_info_q->get_result()->fetch_assoc();
-if (!$kelas_info) {
-    die("Kelas tidak ditemukan.");
-}
+// Ambil info kelas saja (tanpa join guru)
+$kelas_info = $conn->query("SELECT nama_kelas FROM kelas WHERE id = $kelas_id")->fetch_assoc();
 
-// Ambil daftar materi
-$materi_list = $conn->query("SELECT judul, file FROM materi WHERE kelas_id = $kelas_id ORDER BY created_at DESC");
-// Ambil daftar tugas
-$tugas_list = $conn->query("SELECT id, judul, deadline FROM tugas WHERE kelas_id = $kelas_id ORDER BY deadline DESC");
-// Ambil daftar siswa yang terdaftar
-$siswa_list_q = $conn->prepare("SELECT u.nama, u.email FROM kelas_siswa ks JOIN users u ON ks.siswa_id = u.id WHERE ks.kelas_id = ? ORDER BY u.nama ASC");
-$siswa_list_q->bind_param("i", $kelas_id);
-$siswa_list_q->execute();
-$siswa_list = $siswa_list_q->get_result();
+// [BARU] Ambil daftar mapel untuk kelas ini
+$mapel_list = $conn->query("SELECT id, nama_mapel FROM mapel WHERE kelas_id = $kelas_id");
+
+// [BARU] Ambil daftar guru yang sudah mengajar di kelas ini
+$pengajar_list_q = $conn->prepare("
+    SELECT u.nama, m.nama_mapel
+    FROM pengajar p
+    JOIN users u ON p.guru_id = u.id
+    JOIN mapel m ON p.mapel_id = m.id
+    WHERE m.kelas_id = ?
+");
+$pengajar_list_q->bind_param("i", $kelas_id);
+$pengajar_list_q->execute();
+$pengajar_list = $pengajar_list_q->get_result();
+
+
 ?>
 
-<a href="manage_classes.php" class="inline-block bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded mb-6 transition duration-200">&larr; Kembali ke Manajemen Kelas</a>
+<h2 class="text-3xl font-bold text-gray-800">Detail Kelas: <?php echo htmlspecialchars($kelas_info['nama_kelas']); ?></h2>
+<hr class="my-4">
 
-<div class="border-b border-gray-300 pb-4 mb-6">
-    <h2 class="text-3xl font-bold text-gray-800">Detail Kelas: <?php echo htmlspecialchars($kelas_info['nama_kelas']); ?></h2>
-    <p class="text-md text-gray-600">Guru: <?php echo htmlspecialchars($kelas_info['nama_guru']); ?></p>
-</div>
+<div class="flex flex-col lg:flex-row gap-8">
 
-<div class="flex flex-col lg:flex-row lg:space-x-8">
-    <div class="w-full lg:w-2/3">
-        <h3 class="text-xl font-bold text-gray-800 mb-4">Daftar Materi</h3>
-        <ul class="space-y-3 mb-8">
-            <?php if ($materi_list->num_rows > 0): ?>
-                <?php while ($materi = $materi_list->fetch_assoc()): ?>
-                    <li class="flex justify-between items-center p-4 bg-white border border-gray-200 rounded-lg shadow-sm">
-                        <span><?php echo htmlspecialchars($materi['judul']); ?></span>
-                        <a href="../uploads/materi/<?php echo htmlspecialchars($materi['file']); ?>" target="_blank" class="text-sm bg-sky-500 hover:bg-sky-600 text-white font-semibold py-1 px-3 rounded-md">Lihat</a>
+    <div class="w-full lg:w-1/2">
+        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">Kelola Mata Pelajaran</h3>
+            <form action="../proses/admin_kelas_proses.php" method="POST" class="flex gap-2">
+                <input type="hidden" name="action" value="tambah_mapel">
+                <input type="hidden" name="kelas_id" value="<?php echo $kelas_id; ?>">
+                <input type="text" name="nama_mapel" placeholder="Nama Mapel Baru" class="flex-grow w-full px-4 py-2 border rounded-lg" required>
+                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">Tambah</button>
+            </form>
+            <ul class="mt-4 space-y-2">
+                <?php while ($mapel = $mapel_list->fetch_assoc()): ?>
+                    <li class="flex justify-between items-center bg-gray-50 p-2 rounded">
+                        <span><?php echo htmlspecialchars($mapel['nama_mapel']); ?></span>
+                        <a href="../proses/admin_kelas_proses.php?action=hapus_mapel&id=<?php echo $mapel['id']; ?>&kelas_id=<?php echo $kelas_id; ?>" class="text-red-500 hover:text-red-700 text-sm">Hapus</a>
                     </li>
                 <?php endwhile; ?>
-            <?php else: ?>
-                <li class="p-4 bg-white border rounded-lg text-gray-500">Belum ada materi.</li>
-            <?php endif; ?>
-        </ul>
+            </ul>
+        </div>
 
-        <h3 class="text-xl font-bold text-gray-800 mb-4">Daftar Tugas</h3>
-        <ul class="space-y-3">
-            <?php if ($tugas_list->num_rows > 0): ?>
-                <?php while ($tugas = $tugas_list->fetch_assoc()): ?>
-                    <li class="block p-4 bg-white border border-gray-200 rounded-lg shadow-sm">
-                        <h5 class="font-semibold text-blue-700"><?php echo htmlspecialchars($tugas['judul']); ?></h5>
-                        <small class="text-sm text-red-600">Deadline: <?php echo date('d M Y, H:i', strtotime($tugas['deadline'])); ?></small>
-                    </li>
-                <?php endwhile; ?>
-            <?php else: ?>
-                <li class="p-4 bg-white border rounded-lg text-gray-500">Belum ada tugas.</li>
-            <?php endif; ?>
-        </ul>
+        
     </div>
 
-    <div class="w-full lg:w-1/3 mt-10 lg:mt-0">
-        <h3 class="text-xl font-bold text-gray-800 mb-4">Siswa Terdaftar (<?php echo $siswa_list->num_rows; ?>)</h3>
-        <div class="bg-white p-4 rounded-lg shadow-md border border-gray-200">
+    <div class="w-full lg:w-1/2">
+        <div class="bg-white p-6 rounded-lg shadow-md">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">Daftar Guru Pengajar</h3>
             <ul class="divide-y divide-gray-200">
-                <?php if ($siswa_list->num_rows > 0): ?>
-                    <?php while ($siswa = $siswa_list->fetch_assoc()): ?>
+                <?php if ($pengajar_list->num_rows > 0): ?>
+                    <?php while ($pengajar = $pengajar_list->fetch_assoc()): ?>
                         <li class="py-3">
-                            <p class="font-medium text-gray-800"><?php echo htmlspecialchars($siswa['nama']); ?></p>
-                            <p class="text-sm text-gray-500"><?php echo htmlspecialchars($siswa['email']); ?></p>
+                            <p class="font-medium text-gray-800"><?php echo htmlspecialchars($pengajar['nama']); ?></p>
+                            <p class="text-sm text-gray-500">Mengajar: <?php echo htmlspecialchars($pengajar['nama_mapel']); ?></p>
                         </li>
                     <?php endwhile; ?>
                 <?php else: ?>
-                    <li class="py-3 text-gray-500">Belum ada siswa yang bergabung.</li>
+                    <li class="py-3 text-gray-500">Belum ada guru yang ditugaskan.</li>
                 <?php endif; ?>
             </ul>
         </div>

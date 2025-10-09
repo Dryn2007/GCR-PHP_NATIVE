@@ -35,6 +35,7 @@
                             </div>
                         </form>
                         <p class="mt-3 text-center">Belum punya akun? <a href="register.php">Register di sini</a></p>
+                        <p class="mt-1 text-center"><a href="lupa_password.php">Lupa Password?</a></p>
                     </div>
                 </div>
             </div>

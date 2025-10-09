@@ -8,23 +8,33 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
-// Variabel untuk notifikasi, hanya diisi jika user adalah Siswa
+// [DISEDERHANAKAN & DIBUAT AMAN] Blok Logika Notifikasi
 $notifikasi_list = [];
 $unread_count = 0;
 if (isset($_SESSION['role']) && $_SESSION['role'] == 'Siswa') {
     $siswa_id_notif = $_SESSION['user_id'];
 
-    // Ambil jumlah notifikasi yang belum dibaca
-    $count_query = $conn->query("SELECT COUNT(id) as unread_count FROM notifikasi WHERE siswa_id = {$siswa_id_notif} AND is_read = 0");
-    $unread_count = $count_query->fetch_assoc()['unread_count'];
+    // Query aman untuk menghitung notifikasi yang belum dibaca untuk siswa ini
+    $stmt_count = $conn->prepare("SELECT COUNT(id) as unread_count FROM notifikasi WHERE siswa_id = ? AND is_read = 0");
+    $stmt_count->bind_param("i", $siswa_id_notif);
+    $stmt_count->execute();
+    $result_count = $stmt_count->get_result();
+    if ($result_count) {
+        $unread_count = $result_count->fetch_assoc()['unread_count'];
+    }
+    $stmt_count->close();
 
-    // Ambil 5 notifikasi terbaru yang belum dibaca
-    $notif_query = $conn->query("SELECT * FROM notifikasi WHERE siswa_id = {$siswa_id_notif} AND is_read = 0 ORDER BY created_at DESC LIMIT 5");
-    if ($notif_query) {
-        while ($row = $notif_query->fetch_assoc()) {
+    // Query aman untuk mengambil 5 notifikasi terbaru untuk siswa ini
+    $stmt_notif = $conn->prepare("SELECT * FROM notifikasi WHERE siswa_id = ? ORDER BY created_at DESC LIMIT 5");
+    $stmt_notif->bind_param("i", $siswa_id_notif);
+    $stmt_notif->execute();
+    $result_notif = $stmt_notif->get_result();
+    if ($result_notif) {
+        while ($row = $result_notif->fetch_assoc()) {
             $notifikasi_list[] = $row;
         }
     }
+    $stmt_notif->close();
 }
 ?>
 <!DOCTYPE html>
@@ -49,6 +59,18 @@ if (isset($_SESSION['role']) && $_SESSION['role'] == 'Siswa') {
                         Selamat datang, <?php echo htmlspecialchars($_SESSION['nama']); ?>!
                         <span class="font-medium">(<?php echo htmlspecialchars($_SESSION['role']); ?>)</span>
                     </span>
+
+                    <?php
+                    $profil_link = '';
+                    if ($_SESSION['role'] == 'Siswa') {
+                        $profil_link = '/gcr/siswa/profil.php'; // Sesuaikan '/gcr/' dengan path folder proyek Anda
+                    } elseif ($_SESSION['role'] == 'Guru') {
+                        $profil_link = '/gcr/guru/profil.php'; // Sesuaikan '/gcr/' dengan path folder proyek Anda
+                    }
+                    ?>
+                    <?php if ($profil_link != ''): ?>
+                        <a href="<?php echo $profil_link; ?>" class="text-sm text-blue-600 hover:underline">Edit Profil</a>
+                    <?php endif; ?>
 
                     <?php if ($_SESSION['role'] == 'Siswa'): ?>
                         <div class="relative" id="notif-container">
@@ -112,7 +134,3 @@ if (isset($_SESSION['role']) && $_SESSION['role'] == 'Siswa') {
                 });
             }
         </script>
-
-</body>
-
-</html>
